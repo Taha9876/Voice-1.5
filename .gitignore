@@ -1,0 +1,38 @@
+# Next.js
+.next/
+out/
+.vercel/
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env.local
+.env.production
+.env.development
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local history
+.history/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Thumbnails
+.thumbnails/
+
+# Build artifacts
+dist/
+build/
+
+# Custom
+*.tmp
+*.bak

@@ -1,0 +1,342 @@
+<script>
+  // This script integrates voice commands with your Shopify store.
+  // It listens for voice input, sends it to your Next.js backend for processing,
+  // and then executes actions on your Shopify store based on the AI's response.
+
+  // IMPORTANT: Replace this with the actual URL of your deployed Next.js app.
+  // Example: "https://your-shopify-voice-app.vercel.app"
+  const NEXTJS_APP_URL = "YOUR_NEXTJS_APP_URL"; // Replace with your deployed Next.js app URL
+
+  // IMPORTANT: This dynamically gets your Shopify store name from Liquid.
+  const SHOPIFY_STORE_NAME = "{{ shop.name }}"; // Dynamically get store name
+
+  let recognition;
+  let isListening = false;
+  let voiceCommandButton; // Reference to the button that triggers listening
+
+  // This part is for the browser extension's content.js to communicate with the Next.js app.
+  // The content.js script will listen for messages from the popup and forward them here.
+  // It also sends Shopify page context to the Next.js app.
+
+  // You can add more Shopify-specific context here if needed,
+  // which will be sent to your Next.js app's /api/process-command endpoint.
+  window.shopifyPageContext = {
+    url: window.location.href,
+    pageType: document.body.classList.contains('template-index') ? 'home' :
+              document.body.classList.contains('template-product') ? 'product' :
+              document.body.classList.contains('template-collection') ? 'collection' :
+              document.body.classList.contains('template-cart') ? 'cart' :
+              window.location.pathname.includes('/checkout') ? 'checkout' : 'unknown',
+    cartCount: parseInt(document.querySelector('.cart-count, [data-cart-count]')?.innerText.trim() || '0'),
+    // Add more specific selectors for product details, collection filters, etc.
+    // Example: productName: document.querySelector('.product-single__title')?.innerText.trim(),
+  };
+
+  console.log("Shopify Voice Agent Liquid Snippet Loaded. Next.js App URL:", window.NEXTJS_APP_URL);
+
+  // Function to speak a message
+  function speak(message) {
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = 'en-US';
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Function to find and click an element by text content
+  function clickElementByText(text, selectorType = 'button') {
+    let elements;
+    if (selectorType === 'button') {
+      elements = document.querySelectorAll('button');
+    } else if (selectorType === 'link') {
+      elements = document.querySelectorAll('a');
+    } else { // Default to checking all elements for text
+      elements = document.querySelectorAll('button, a, span, div, p, h1, h2, h3, h4, h5, h6');
+    }
+
+    for (const el of elements) {
+      if (el.textContent && el.textContent.trim().toLowerCase().includes(text.toLowerCase())) {
+        console.log(`Clicking element with text: "${text}"`, el);
+        el.click();
+        speak(`Clicked ${text}.`);
+        return true;
+      }
+    }
+    console.warn(`Element with text "${text}" not found.`);
+    speak(`Could not find an element to click with the text ${text}.`);
+    return false;
+  }
+
+  // Function to fill a form field
+  function fillFormField(fieldName, value) {
+    const inputs = document.querySelectorAll('input, textarea');
+    for (const input of inputs) {
+      const label = input.labels && input.labels[0] ? input.labels[0].textContent.toLowerCase() : '';
+      const placeholder = input.placeholder ? input.placeholder.toLowerCase() : '';
+      const name = input.name ? input.name.toLowerCase() : '';
+      const id = input.id ? input.id.toLowerCase() : '';
+
+      if (
+        label.includes(fieldName.toLowerCase()) ||
+        placeholder.includes(fieldName.toLowerCase()) ||
+        name.includes(fieldName.toLowerCase()) ||
+        id.includes(fieldName.toLowerCase())
+      ) {
+        input.value = value;
+        console.log(`Filled field "${fieldName}" with "${value}"`);
+        speak(`Filled ${fieldName} with ${value}.`);
+        return true;
+      }
+    }
+    console.warn(`Form field "${fieldName}" not found.`);
+    speak(`Could not find a field named ${fieldName}.`);
+    return false;
+  }
+
+  // Function to submit a form
+  function submitForm(formName) {
+    let form;
+    if (formName) {
+      form = document.querySelector(`form[name*="${formName}" i], form[id*="${formName}" i], form[class*="${formName}" i]`);
+    } else {
+      // Try to find a common form like a search form or contact form if no specific name
+      form = document.querySelector('form[action*="/search"], form[action*="/contact"]');
+    }
+
+    if (form) {
+      console.log(`Submitting form:`, form);
+      form.submit();
+      speak(`Submitting the form.`);
+      return true;
+    }
+    console.warn(`Form "${formName || 'unspecified'}" not found.`);
+    speak(`Could not find a form to submit.`);
+    return false;
+  }
+
+  // Function to handle scrolling
+  function handleScroll(direction) {
+    if (direction === 'down') {
+      window.scrollBy({ top: window.innerHeight * 0.75, behavior: 'smooth' });
+      speak('Scrolling down.');
+    } else if (direction === 'up') {
+      window.scrollBy({ top: -window.innerHeight * 0.75, behavior: 'smooth' });
+      speak('Scrolling up.');
+    } else if (direction === 'top') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      speak('Scrolling to the top.');
+    } else if (direction === 'bottom') {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      speak('Scrolling to the bottom.');
+    }
+  }
+
+  // Function to process the AI's JSON response
+  async function executeAction(actionData) {
+    console.log('Executing action:', actionData);
+    switch (actionData.action) {
+      case 'navigate':
+        let url = '/';
+        switch (actionData.target) {
+          case 'home': url = '/'; break;
+          case 'products': url = '/collections/all'; break;
+          case 'cart': url = '/cart'; break;
+          case 'checkout': url = '/checkout'; break;
+          case 'search': url = '/search'; break;
+          case 'collections': url = '/collections'; break;
+          case 'contact': url = '/pages/contact'; break; // Assuming a contact page
+          case 'about': url = '/pages/about'; break;     // Assuming an about page
+          default: speak(`I can't navigate to ${actionData.target}.`); return;
+        }
+        speak(`Navigating to ${actionData.target}.`);
+        window.location.href = url;
+        break;
+
+      case 'search':
+        const searchInput = document.querySelector('input[name="q"], input[type="search"]');
+        if (searchInput) {
+          searchInput.value = actionData.query;
+          searchInput.form ? searchInput.form.submit() : console.warn('Search input has no parent form.');
+          speak(`Searching for ${actionData.query}.`);
+        } else {
+          speak(`Could not find a search bar to search for ${actionData.query}.`);
+          window.location.href = `/search?q=${encodeURIComponent(actionData.query)}`; // Fallback to direct URL
+        }
+        break;
+
+      case 'add_to_cart':
+        // This is a complex action that often requires specific product IDs or variants.
+        // For a simple demo, we'll assume direct navigation to product page and then clicking add to cart.
+        // In a real scenario, you'd need more sophisticated DOM manipulation or Shopify AJAX API calls.
+        speak(`Attempting to add ${actionData.quantity || 1} of ${actionData.product_name} to cart.`);
+        // Example: Navigate to a product page first, then try to click add to cart
+        // This is highly dependent on your theme's structure.
+        window.location.href = `/products/${actionData.product_name.toLowerCase().replace(/\s/g, '-')}`;
+        // You would then need a way to automatically click the add to cart button on that page.
+        // This might require a more advanced content script or a Shopify AJAX API call.
+        break;
+
+      case 'remove_from_cart':
+        speak(`Attempting to remove ${actionData.quantity || 1} of ${actionData.product_name} from cart.`);
+        // This would require finding the specific item in the cart and clicking a remove button
+        // or using Shopify's AJAX API for cart updates.
+        window.location.href = '/cart'; // Go to cart page first
+        break;
+
+      case 'update_cart_quantity':
+        speak(`Attempting to update ${actionData.product_name} quantity to ${actionData.new_quantity}.`);
+        window.location.href = '/cart'; // Go to cart page first
+        break;
+
+      case 'clear_cart':
+        speak('Clearing your cart.');
+        // This would typically involve a form submission or AJAX call to clear the cart.
+        // Example: window.location.href = '/cart/clear'; (if your theme supports it)
+        break;
+
+      case 'checkout':
+        speak('Proceeding to checkout.');
+        window.location.href = '/checkout';
+        break;
+
+      case 'apply_discount':
+        speak(`Applying discount code ${actionData.code}.`);
+        // This would involve finding the discount code input field and submitting it,
+        // typically on the cart or checkout page.
+        break;
+
+      case 'scroll':
+        handleScroll(actionData.direction);
+        break;
+
+      case 'click':
+        clickElementByText(actionData.value, actionData.selector_type);
+        break;
+
+      case 'fill_field':
+        fillFormField(actionData.field_name, actionData.value);
+        break;
+
+      case 'submit_form':
+        submitForm(actionData.form_name);
+        break;
+
+      case 'respond':
+        speak(actionData.message);
+        break;
+
+      default:
+        speak("I'm not sure how to perform that action.");
+        console.warn('Unknown action:', actionData.action);
+    }
+  }
+
+  // Function to send voice command to Next.js backend
+  async function processVoiceCommand(command) {
+    try {
+      const response = await fetch(`${NEXTJS_APP_URL}/api/process-command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ command, shopName: SHOPIFY_STORE_NAME, shopifyPageContext: window.shopifyPageContext }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to process command on backend.');
+      }
+
+      const data = await response.json();
+      console.log('AI Response:', data);
+      executeAction(data);
+
+    } catch (error) {
+      console.error('Error sending command to backend:', error);
+      speak("I'm sorry, I encountered an error processing your command. Please try again.");
+    }
+  }
+
+  // Initialize Speech Recognition
+  function initializeSpeechRecognition() {
+    if ('webkitSpeechRecognition' in window) {
+      const SpeechRecognition = window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = false; // Listen for a single utterance
+      recognition.interimResults = false; // Only return final results
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        isListening = true;
+        console.log('Listening for voice commands...');
+        if (voiceCommandButton) {
+          voiceCommandButton.textContent = 'Listening...';
+          voiceCommandButton.style.backgroundColor = 'red';
+        }
+      };
+
+      recognition.onresult = (event) => {
+        const speechResult = event.results[0][0].transcript;
+        console.log('Voice command heard:', speechResult);
+        processVoiceCommand(speechResult);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        isListening = false;
+        if (voiceCommandButton) {
+          voiceCommandButton.textContent = 'Voice Command';
+          voiceCommandButton.style.backgroundColor = '';
+        }
+        speak(`Speech recognition error: ${event.error}.`);
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+        console.log('Stopped listening.');
+        if (voiceCommandButton) {
+          voiceCommandButton.textContent = 'Voice Command';
+          voiceCommandButton.style.backgroundColor = '';
+        }
+      };
+    } else {
+      console.warn('Web Speech API is not supported in this browser.');
+      speak('Your browser does not support the Web Speech API. Please use Chrome or Edge.');
+    }
+  }
+
+  // Create and append the voice command button to the Shopify store
+  function createVoiceCommandButton() {
+    voiceCommandButton = document.createElement('button');
+    voiceCommandButton.textContent = 'Voice Command';
+    voiceCommandButton.style.position = 'fixed';
+    voiceCommandButton.style.bottom = '20px';
+    voiceCommandButton.style.right = '20px';
+    voiceCommandButton.style.padding = '10px 15px';
+    voiceCommandButton.style.backgroundColor = '#007bff';
+    voiceCommandButton.style.color = 'white';
+    voiceCommandButton.style.border = 'none';
+    voiceCommandButton.style.borderRadius = '5px';
+    voiceCommandButton.style.cursor = 'pointer';
+    voiceCommandButton.style.zIndex = '10000';
+    voiceCommandButton.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+
+    voiceCommandButton.addEventListener('click', () => {
+      if (!isListening) {
+        if (recognition) {
+          recognition.start();
+        } else {
+          speak('Speech recognition is not initialized. Please refresh the page or use a compatible browser.');
+        }
+      } else {
+        recognition.stop();
+      }
+    });
+
+    document.body.appendChild(voiceCommandButton);
+  }
+
+  // Run on DOMContentLoaded to ensure elements are available
+  document.addEventListener('DOMContentLoaded', () => {
+    initializeSpeechRecognition();
+    createVoiceCommandButton();
+  });
+</script>

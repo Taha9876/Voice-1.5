@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Shopify Voice Automation</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      text-align: center;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+    .status.active {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.inactive {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    button {
+      padding: 10px 15px;
+      margin: 5px;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+      background-color: #007bff;
+      color: white;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    #transcript {
+      margin-top: 10px;
+      padding: 8px;
+      border: 1px solid #eee;
+      background-color: #f9f9f9;
+      min-height: 50px;
+      text-align: left;
+      word-wrap: break-word;
+    }
+    .commands {
+      margin-top: 20px;
+      font-size: 12px;
+    }
+    .commands h4 {
+      margin-bottom: 10px;
+    }
+    .commands ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .commands li {
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Voice Control</h2>
+  </div>
+  
+  <div class="controls">
+    <button id="startButton">Start Listening</button>
+    <button id="stopButton" disabled>Stop Listening</button>
+  </div>
+  
+  <div id="status" class="status">Ready</div>
+  <div id="transcript"></div>
+  
+  <div class="commands">
+    <h4>Quick Commands:</h4>
+    <ul>
+      <li>"Go to homepage"</li>
+      <li>"Search for [product]"</li>
+      <li>"Add to cart"</li>
+      <li>"Go to checkout"</li>
+      <li>"Navigate back"</li>
+    </ul>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
